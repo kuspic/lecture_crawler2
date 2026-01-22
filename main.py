@@ -95,3 +95,76 @@ def run_crawler(driver, target, scrolls):
         status_box.write("✅ 수집 시작!")
 
         data_list = []
+        seen_urls = set()
+
+        # 링크 수집 전략
+        items = driver.find_elements(By.TAG_NAME, 'a')
+        
+        # [디버깅] 도대체 뭘 보고 있는지 상위 5개만 출력해봄
+        st.write(f"🔍 발견된 링크 총 {len(items)}개. (샘플 분석 중...)")
+        
+        for item in items:
+            try:
+                link = item.get_attribute("href")
+                if not link: continue
+
+                # 유효성 검사 (조건을 조금 더 넓힘)
+                is_valid = False
+                
+                # 크몽 조건
+                if site_name == "크몽" and "/gig/" in link:
+                    is_valid = True
+                
+                # 클래스유 조건 (class 뒤에 숫자가 오거나, 그냥 class가 포함된 것 다 수집해보고 필터링)
+                if site_name == "클래스유" and "/class/" in link:
+                    # 채팅, 개설 등 쓸모없는 링크 제외
+                    if "chat" not in link and "open" not in link and "login" not in link:
+                        is_valid = True
+
+                if not is_valid: continue
+                if link in seen_urls: continue
+                seen_urls.add(link)
+
+                # 텍스트 추출
+                raw_text = item.get_attribute("textContent")
+                clean_text = " ".join(raw_text.split())
+                
+                # 텍스트가 비어있어도 링크가 확실하면 "제목 없음"으로라도 저장
+                if not clean_text:
+                    clean_text = "제목 로딩 실패 (직접 확인 필요)"
+
+                data_list.append({
+                    "사이트": site_name,
+                    "강의정보": clean_text[:100],
+                    "URL": link
+                })
+            except:
+                continue
+
+        return pd.DataFrame(data_list)
+
+    except Exception as e:
+        st.error(f"오류 발생: {e}")
+        return pd.DataFrame()
+
+# ==========================================
+# 4. 실행 버튼
+# ==========================================
+if st.button("스텔스 수집 시작 🥷"):
+    driver = get_driver()
+    result_df = run_crawler(driver, target_source, scroll_count)
+    driver.quit()
+    
+    if not result_df.empty:
+        st.success(f"🎉 성공! {len(result_df)}개의 데이터를 확보했습니다.")
+        st.dataframe(result_df)
+        
+        csv = result_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 엑셀 파일 다운로드",
+            data=csv,
+            file_name=f"강의리스트_V5.csv",
+            mime="text/csv"
+        )
+    else:
+        st.error("여전히 데이터가 없습니다. 위 '로봇 시점' 사진을 확인해주세요. (빈 화면이면 차단된 것입니다)")
